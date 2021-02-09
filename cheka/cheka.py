@@ -45,7 +45,8 @@ class Cheka:
         self,
         data: Union[Graph, str],
         profiles: Union[Graph, str],
-        get_remote_profiles: bool = False
+        get_remote_profiles: bool = False,
+        cache: bool = True
     ):
         self.VALIDATORS_DIR = Path(__file__).parent / "cache"
 
@@ -72,23 +73,25 @@ class Cheka:
 
         # expand the profiles graph
         self._expand_profiles_graph(self.pg)
+        self.cache = cache
 
         # establish cache dir & map
-        if not Path.is_dir(self.VALIDATORS_DIR):
-            mkdir(self.VALIDATORS_DIR)
-        if not Path.is_dir(self.VALIDATORS_DIR):
-            raise Exception("Could not create or access the validators cache directory, {}".format(self.VALIDATORS_DIR))
-        self.VALIDATORS_MAP_FILE = Path(self.VALIDATORS_DIR) / "map.py"
-        if not Path.is_file(self.VALIDATORS_MAP_FILE):
-            with open(self.VALIDATORS_MAP_FILE, "w") as f:
-                f.write(json.dumps({}))
-        else:
-            # we seem to already have a MAP file
-            pass
+        if self.cache:
+            if not Path.is_dir(self.VALIDATORS_DIR):
+                mkdir(self.VALIDATORS_DIR)
+            if not Path.is_dir(self.VALIDATORS_DIR):
+                raise Exception("Could not create or access the validators cache directory, {}".format(self.VALIDATORS_DIR))
+            self.VALIDATORS_MAP_FILE = Path(self.VALIDATORS_DIR) / "map.py"
+            if not Path.is_file(self.VALIDATORS_MAP_FILE):
+                with open(self.VALIDATORS_MAP_FILE, "w") as f:
+                    f.write(json.dumps({}))
+            else:
+                # we seem to already have a MAP file
+                pass
 
-        # cache all the artifacts for all the Profiles within the profile grapf (self.pg)
-        # with RD with role of validator and conforming to SHACL
-        self._cache_pg_validating_artifacts(self.pg)
+            # cache all the artifacts for all the Profiles within the profile grapf (self.pg)
+            # with RD with role of validator and conforming to SHACL
+            self._cache_pg_validating_artifacts(self.pg)
 
     def _parse_input_parameter(self, parameter, parameter_name):
         if type(parameter) not in [Graph, str]:
@@ -348,8 +351,10 @@ class Cheka:
                 "validate() function".format("', '".join(strategies))
             )
 
-        with open(self.VALIDATORS_MAP_FILE, "r") as f:
-            validators_map = json.load(f)
+        validators_map = {}
+        if self.cache:
+            with open(self.VALIDATORS_MAP_FILE, "r") as f:
+                validators_map = json.load(f)
 
         vg = Graph()
 

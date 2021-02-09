@@ -1,4 +1,4 @@
-rdflib>=6.0.0
+rdflib>=5.0.0
 pyshacl
 requests
 pytest
