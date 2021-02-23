@@ -1,3 +1,4 @@
+import os
 import logging
 from typing import Union
 from pathlib import Path
@@ -46,9 +47,12 @@ class Cheka:
         data: Union[Graph, str],
         profiles: Union[Graph, str],
         get_remote_profiles: bool = False,
-        cache: bool = True
+        cache: bool = True,
+        cache_dir: str = None
     ):
         self.VALIDATORS_DIR = Path(__file__).parent / "cache"
+        if cache_dir:
+            self.VALIDATORS_DIR = Path(os.path.join(cache_dir, 'cache'))
 
         self.dg = Graph()
         self.pg = Graph()
