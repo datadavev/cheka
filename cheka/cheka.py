@@ -38,6 +38,20 @@ class Cheka:
         "text/n-triples": "nt",
         "text/plain": "nt",  # text/plain is the old/deprecated mimetype for n-triples
     }
+    # Use like (for default None)
+    # RDF_FILETYPES_MAP.get(fname[fname.rfind("."):], None) 
+    RDF_FILETYPES_MAP = {
+        ".ttl": "turtle",
+        ".nt": "nt",
+        ".n3": "n3",
+        ".json": "json-ld",
+        ".jsonld": "json-ld",
+        ".nq": "nquads",
+        ".nquads": "nquads",
+        ".trig": "trig",
+        ".xml": "xml",
+        ".rdf": "xml",
+    }
 
     """The Cheka program main class that contains all of the functionality
 
@@ -183,15 +197,19 @@ class Cheka:
                                     validator_graph.parse(data=data)
                                 elif str(artifact_uri).startswith("file"):
                                     artifact_path = Path(str(artifact_uri).replace("file://", ""))
-                                    logging.debug("Attempting to parse local artifact {}".format(artifact_path))
+                                    logging.debug("Attempting to parse local artifact {}".format(artifact_path))                                    
                                     if Path.is_file(artifact_path):
-                                        logging.debug("Found file at location {}".format(artifact_path))
-                                        validator_graph.parse(artifact_path)
+                                        file_name = str(artifact_path)
+                                        logging.debug("Found file at location {}".format(file_name))
+                                        rdf_format = RDF_FILETYPES_MAP.get(file_name[file_name.rfind("."):], None)
+                                        validator_graph.parse(file_name, format=rdf_format)
                                     else:
                                         artifact_path = Path(__file__).parent.parent / "tests" / "validators" / artifact_path
                                         if Path.is_file(artifact_path):
-                                            logging.debug("Found file in tests validators dir {}".format(artifact_path))
-                                            validator_graph.parse(artifact_path)
+                                            file_name = str(artifact_path)
+                                            logging.debug("Found file in tests validators dir {}".format(file_name))
+                                            rdf_format = RDF_FILETYPES_MAP.get(file_name[file_name.rfind("."):], None)
+                                            validator_graph.parse(file_name, format=rdf_format)
                                         else:
                                             raise ValueError("Validator local file indicated at {} but not found"
                                                              .format(artifact_path))
