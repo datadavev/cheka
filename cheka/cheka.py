@@ -2,7 +2,7 @@ import os
 import logging
 from typing import Union
 from pathlib import Path
-from rdflib import Graph, URIRef, Namespace
+from rdflib import Dataset, Graph, URIRef, Namespace
 from rdflib.namespace import DCTERMS, PROF, RDF, SH
 from os import mkdir
 from rdflib.paths import ZeroOrMore
@@ -123,15 +123,20 @@ class Cheka:
         elif type(parameter) == str:
             try:
                 p = Path(parameter)
-
                 if Path.is_file(p):
+                    rdf_format = self.RDF_FILETYPES_MAP.get(parameter[parameter.rfind("."):], None)
                     try:
-                        return Graph().parse(parameter, format="turtle")
+                        rdf_format = self.RDF_FILETYPES_MAP.get(parameter[parameter.rfind("."):], None)
+                        return Dataset().parse(parameter, format=rdf_format)
                     except Exception as e:
+                        logging.error(
+                            "You've supplied an invalid RDF file for parameter 'data', it could not be parsed. "
+                            "The parser said: {}".format(e))
                         raise ValueError(
                             "You've supplied an invalid RDF file for parameter 'data', it could not be parsed. "
                             "The parser said: {}".format(e))
-            except:
+            except Exception as e:
+                logging.error(e)
                 pass
 
             try:
@@ -201,14 +206,14 @@ class Cheka:
                                     if Path.is_file(artifact_path):
                                         file_name = str(artifact_path)
                                         logging.debug("Found file at location {}".format(file_name))
-                                        rdf_format = RDF_FILETYPES_MAP.get(file_name[file_name.rfind("."):], None)
+                                        rdf_format = self.RDF_FILETYPES_MAP.get(file_name[file_name.rfind("."):], None)
                                         validator_graph.parse(file_name, format=rdf_format)
                                     else:
                                         artifact_path = Path(__file__).parent.parent / "tests" / "validators" / artifact_path
                                         if Path.is_file(artifact_path):
                                             file_name = str(artifact_path)
                                             logging.debug("Found file in tests validators dir {}".format(file_name))
-                                            rdf_format = RDF_FILETYPES_MAP.get(file_name[file_name.rfind("."):], None)
+                                            rdf_format = self.RDF_FILETYPES_MAP.get(file_name[file_name.rfind("."):], None)
                                             validator_graph.parse(file_name, format=rdf_format)
                                         else:
                                             raise ValueError("Validator local file indicated at {} but not found"
