@@ -14,6 +14,7 @@ import shutil
 from urllib.request import urlopen, Request
 from urllib.parse import urlencode
 from urllib.error import HTTPError, URLError
+import diskcache
 
 
 class UnknownProfileError(ValueError):
@@ -64,9 +65,9 @@ class Cheka:
         cache: bool = True,
         cache_dir: str = None
     ):
-        self.VALIDATORS_DIR = Path(__file__).parent / "cache"
+        self.VALIDATORS_DIR = os.path.abspath(os.path.join(__file__, '..', "cache"))
         if cache_dir:
-            self.VALIDATORS_DIR = Path(os.path.join(cache_dir, 'cache'))
+            self.VALIDATORS_DIR = os.path.abspath(os.path.join(cache_dir, 'cache'))
 
         self.dg = Graph()
         self.pg = Graph()
@@ -92,20 +93,11 @@ class Cheka:
         # expand the profiles graph
         self._expand_profiles_graph(self.pg)
         self.cache = cache
+        self._cache = None
 
         # establish cache dir & map
         if self.cache:
-            if not Path.is_dir(self.VALIDATORS_DIR):
-                mkdir(self.VALIDATORS_DIR)
-            if not Path.is_dir(self.VALIDATORS_DIR):
-                raise Exception("Could not create or access the validators cache directory, {}".format(self.VALIDATORS_DIR))
-            self.VALIDATORS_MAP_FILE = Path(self.VALIDATORS_DIR) / "map.py"
-            if not Path.is_file(self.VALIDATORS_MAP_FILE):
-                with open(self.VALIDATORS_MAP_FILE, "w") as f:
-                    f.write(json.dumps({}))
-            else:
-                # we seem to already have a MAP file
-                pass
+            self._cache = diskcache.Index(self.VALIDATORS_DIR)
 
             # cache all the artifacts for all the Profiles within the profile grapf (self.pg)
             # with RD with role of validator and conforming to SHACL
@@ -170,13 +162,11 @@ class Cheka:
         #       get all their artifacts' content
         #           lump them into a single validator graph for that Profile
         # store the validator per-profile in cache
-        with open(self.VALIDATORS_MAP_FILE, "r") as f:
-            map = json.load(f)
 
         for profile in pg.subjects(predicate=RDF.type, object=PROF.Profile):
             logging.debug("profile {}".format(profile))
             # if we already have a validator for this profile, do nothing
-            if str(profile) in map.keys():
+            if str(profile) in self._cache.keys():
                 logging.info("Using cached validators for Profile {}".format(profile))
             else:
                 logging.info("Storing Profile {} in cache".format(profile))
@@ -223,29 +213,17 @@ class Cheka:
                                                      "a local file ('file:///...') in its URI so it cannot be found")
                             except Exception as e:
                                 # do nothing, can't parse RDF
-                                print(e)
                                 logging.info(
                                     "Attempted to dereference Artifact {} but got an error: {}"
                                         .format(artifact_uri, str(e))
                                 )
 
                 if len(validator_graph) > 0:
-                    # make up a file name for the validator
-                    fn = str(uuid.uuid4())
-                    # write to map
-                    map[str(profile)] = fn
-                    with open(self.VALIDATORS_MAP_FILE, "w") as f:
-                        f.write(json.dumps(map, indent=4))
-                    # write validator content
-                    # validator_graph.serialize(destination=str(Path(self.VALIDATORS_DIR / (fn + ".ttl"))), format="turtle")
-                    with open(str(Path(self.VALIDATORS_DIR / (fn + ".p"))), "wb") as f:
-                        pickle.dump(validator_graph, f)
+                    self._cache[str(profile)] = validator_graph
 
         # warn about Profiles with no validators
-        with open(self.VALIDATORS_MAP_FILE, "r") as f:
-            map = json.load(f)
         for profile in pg.subjects(predicate=RDF.type, object=PROF.Profile):
-            if str(profile) not in map.keys():
+            if str(profile) not in self._cache.keys():
                 logging.info("No validators are recorded for Profile {}".format(profile))
 
     def _get_profiles_hierarchy(self, pg, profile_uri: str) -> set:
@@ -267,6 +245,7 @@ class Cheka:
                 # prefer a file already in the VALIDATORS_DIR
                 # over one still local, but prefer local bot in VALIDATORS_DIR
                 # to remote
+                #TODO: grok this
                 u = next((x for x in rds_artifact_uris if Cheka.VALIDATORS_DIR in x), None)
                 if u is None:
                     u = next((x for x in rds_artifact_uris if x.startswith("file://") or x.startswith("/")), None)
@@ -378,21 +357,13 @@ class Cheka:
                 "validate() function".format("', '".join(strategies))
             )
 
-        validators_map = {}
-        if self.cache:
-            with open(self.VALIDATORS_MAP_FILE, "r") as f:
-                validators_map = json.load(f)
-
         vg = Graph()
 
         if strategy == "shacl":
             # use all the validators for all profile in pg
             for p in self.pg.subjects(predicate=RDF.type, object=PROF.Profile):
-                inc = validators_map.get(str(p))
-                if inc is not None:
-                    with open(Path(self.VALIDATORS_DIR / (validators_map.get(str(p)) + ".p")), "rb") as f:
-                        vg = vg + pickle.load(f)
-
+                if(str(p)) in self._cache.keys():
+                    vg = vg + self._cache[str(p)]
             return self._validate_pyshacl(vg)
 
         elif strategy == "profile":
@@ -407,12 +378,9 @@ class Cheka:
 
             # if we don't have profile info for a profile and if get_remote_profiles is True, try and get it online
             if self.get_remote_profiles:
-                with open(self.VALIDATORS_MAP_FILE, "r") as f:
-                    map = json.load(f)
-
                 missing = []
                 for h in hierarchies:
-                    if h not in map.keys():
+                    if h not in self._cache.keys():
                         missing.append(h)
                 if len(missing) > 0:
                     logging.info(
@@ -429,10 +397,8 @@ class Cheka:
             #     )
             vs = []
             for h in hierarchies:
-                inc = validators_map.get(h)
-                if inc is not None:
-                    with open(Path(self.VALIDATORS_DIR / (inc + ".p")), "rb") as f:
-                        vg = vg + pickle.load(f)
+                if h in self._cache.keys():
+                    vg = vg + self._cache[h]
                 vs.append((h,) + self._validate_pyshacl(vg))
             all_valid = all([x[1] for x in vs])
             return [all_valid] + vs
@@ -446,18 +412,16 @@ class Cheka:
             #   else: report claim un-actionable without download
             vs = []
             for inst, profile in self.dg.subject_objects(predicate=DCTERMS.conformsTo):
-                inc = validators_map.get(profile)
-                if inc is not None:
-                    with open(Path(self.VALIDATORS_DIR / (inc + ".p")), "rb") as f:
-                        vg = vg + pickle.load(f)
+                if profile in self._cache.keys():
+                    vg = vg + self._cache[profile]
                 vs.append((profile,) + self._validate_pyshacl(vg))
 
     def clear_cache(self):
         """Clears the cache of Profiles' validators
 
         Deleted the VALIDATORS_DIR directory and all of its content"""
-        if Path.is_dir(self.VALIDATORS_DIR):
-            shutil.rmtree(self.VALIDATORS_DIR)
+        if self._cache is not None:
+            self._cache.clear()
 
     def _dereference_and_cache_remote_profile(self, profile_uri):
         # go online, get the profile, bring it in to the Profiles Graph
